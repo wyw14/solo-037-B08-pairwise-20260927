@@ -82,6 +82,9 @@ func (s *Store) AppendBatch(records []Record) error {
         }
     }
     pending := append(append([]Record{}, s.records...), records...)
+    for i := len(pending) - len(records); i < len(pending); i++ {
+        pending[i] = cloneRecord(pending[i])
+    }
     temporary := s.path() + ".pending"
     file, err := os.Create(temporary)
     if err != nil {
@@ -112,6 +115,17 @@ func (s *Store) Records() []Record {
     s.mu.Lock()
     defer s.mu.Unlock()
     result := make([]Record, len(s.records))
-    copy(result, s.records)
+    for i, record := range s.records {
+        result[i] = cloneRecord(record)
+    }
     return result
+}
+
+func cloneRecord(record Record) Record {
+    if record.Payload != nil {
+        payload := make(json.RawMessage, len(record.Payload))
+        copy(payload, record.Payload)
+        record.Payload = payload
+    }
+    return record
 }
