@@ -81,7 +81,13 @@ func (s *Store) AppendBatch(records []Record) error {
             return errors.New("incomplete write")
         }
     }
-    pending := append(append([]Record{}, s.records...), records...)
+    pending := make([]Record, 0, len(s.records)+len(records))
+    pending = append(pending, s.records...)
+    for _, record := range records {
+        // Copy at ingress so later mutation of the caller's payload slice
+        // (including its backing array) cannot reach stored history.
+        pending = append(pending, record.clone())
+    }
     temporary := s.path() + ".pending"
     file, err := os.Create(temporary)
     if err != nil {
@@ -112,6 +118,20 @@ func (s *Store) Records() []Record {
     s.mu.Lock()
     defer s.mu.Unlock()
     result := make([]Record, len(s.records))
-    copy(result, s.records)
+    for i, record := range s.records {
+        // Deep copy the payload: a shallow copy would let callers rewrite
+        // history through the shared json.RawMessage backing array even though
+        // the durable file on disk still holds the original bytes.
+        result[i] = record.clone()
+    }
     return result
+}
+
+// clone returns a record whose payload owns a fresh byte slice, so the result
+// never shares mutable storage with any other record.
+func (r Record) clone() Record {
+    if r.Payload != nil {
+        r.Payload = append(json.RawMessage{}, r.Payload...)
+    }
+    return r
 }
